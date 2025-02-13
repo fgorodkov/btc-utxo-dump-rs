@@ -62,6 +62,9 @@ pub struct Cli {
 
     #[arg(short, long, help = "Quiet mode, no output", default_value = "false")]
     pub quiet: bool,
+
+    #[arg(long, help = "Include P2PK addresses", default_value = "false")]
+    pub include_p2pk: bool,
 }
 
 impl Cli {

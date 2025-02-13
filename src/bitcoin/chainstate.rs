@@ -5,6 +5,8 @@ use leveldb::options::Options;
 use leveldb::options::ReadOptions;
 use std::path::Path;
 
+use super::btc_leveldb::varint128_decode;
+
 pub struct ChainStateDB(Database<ChainStateKey>);
 
 impl ChainStateDB {
@@ -26,17 +28,27 @@ impl ChainStateDB {
 #[derive(Debug)]
 pub struct ChainStateKey(Vec<u8>);
 
-impl ChainStateKey {
-    pub fn first_byte(&self) -> u8 {
-        self.0[0]
-    }
-}
 impl Key for ChainStateKey {
     fn from_u8(key: &[u8]) -> Self {
         Self(key.to_vec())
     }
     fn as_slice<T, F: Fn(&[u8]) -> T>(&self, f: F) -> T {
         f(&self.0)
+    }
+}
+
+impl ChainStateKey {
+    pub fn first_byte(&self) -> u8 {
+        self.0[0]
+    }
+    pub fn txid(&self) -> String {
+        let txid_le = &self.0[1..33];
+        let txid: Vec<u8> = txid_le.iter().rev().copied().collect();
+        hex::encode(txid)
+    }
+    pub fn vout(&self) -> i64 {
+        let vout_bytes = &self.0[33..];
+        varint128_decode(vout_bytes)
     }
 }
 
