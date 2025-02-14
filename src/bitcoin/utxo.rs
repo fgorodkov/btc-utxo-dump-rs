@@ -1,5 +1,6 @@
 use super::address::{hash160_to_address, public_key_to_address, segwit_address};
 use super::btc_leveldb::{decompress_value, varint128_decode, varint128_read};
+use super::pubkey::decompress_public_key;
 
 #[derive(Debug, PartialEq)]
 pub enum ScriptType {
@@ -22,7 +23,7 @@ pub struct UtxoValue {
 }
 
 impl UtxoValue {
-    pub fn parse(data: &[u8]) -> Result<Self, anyhow::Error> {
+    pub fn parse(data: &[u8], need_decompression: bool) -> Result<Self, anyhow::Error> {
         let mut offset = 0;
 
         // First varint (height and coinbase)
@@ -51,7 +52,12 @@ impl UtxoValue {
         }
 
         // Get remaining bytes as script
-        let script = data[offset..].to_vec();
+        let mut script = data[offset..].to_vec();
+
+        // Only decompress if needed for script output or address generation
+        if need_decompression && (script_type == 4 || script_type == 5) {
+            script = decompress_public_key(&script)?;
+        }
 
         Ok(Self {
             height: height as u32,
@@ -66,7 +72,10 @@ impl UtxoValue {
         match self.script_type {
             0 => ScriptType::P2PKH,
             1 => ScriptType::P2SH,
-            2..=5 => ScriptType::P2PK, // P2PK variants
+            2..=5 => ScriptType::P2PK,
+            _ if !self.script.is_empty() && self.script[self.script.len() - 1] == 174 => {
+                ScriptType::P2MS
+            }
             28 if self.script.len() >= 2 && self.script[0] == 0 && self.script[1] == 20 => {
                 ScriptType::P2WPKH
             }
@@ -76,15 +85,17 @@ impl UtxoValue {
             40 if self.script.len() >= 2 && self.script[0] == 0x51 && self.script[1] == 32 => {
                 ScriptType::P2TR
             }
-            _ if !self.script.is_empty() && self.script[self.script.len() - 1] == 174 => {
-                ScriptType::P2MS
-            } // OP_CHECKMULTISIG = 174
             _ => ScriptType::NonStandard,
         }
     }
 
-    pub fn get_address(&self, testnet: bool, p2pk_addresses: bool) -> Option<String> {
-        match self.get_script_type() {
+    pub fn get_address_with_type(
+        &self,
+        script_type: ScriptType,
+        testnet: bool,
+        p2pk_addresses: bool,
+    ) -> Option<String> {
+        match script_type {
             ScriptType::P2PKH => {
                 let prefix = if testnet { 0x6f } else { 0x00 };
                 Some(hash160_to_address(&self.script, prefix))
@@ -98,7 +109,7 @@ impl UtxoValue {
                 Some(public_key_to_address(&self.script, prefix))
             }
             ScriptType::P2WPKH | ScriptType::P2WSH | ScriptType::P2TR => {
-                let version = if matches!(self.get_script_type(), ScriptType::P2TR) {
+                let version = if matches!(script_type, ScriptType::P2TR) {
                     1
                 } else {
                     0

@@ -1,8 +1,22 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-pub const VALID_FIELDS: [&str; 10] = [
-    "count", "txid", "vout", "height", "coinbase", "amount", "nsize", "script", "type", "address",
+use super::fields::{
+    FIELD_ADDRESS, FIELD_AMOUNT, FIELD_COINBASE, FIELD_COUNT, FIELD_HEIGHT, FIELD_NSIZE,
+    FIELD_SCRIPT, FIELD_TXID, FIELD_TYPE, FIELD_VOUT,
+};
+
+const VALID_FIELDS: [&str; 10] = [
+    FIELD_COUNT,
+    FIELD_TXID,
+    FIELD_VOUT,
+    FIELD_HEIGHT,
+    FIELD_COINBASE,
+    FIELD_AMOUNT,
+    FIELD_NSIZE,
+    FIELD_SCRIPT,
+    FIELD_TYPE,
+    FIELD_ADDRESS,
 ];
 
 #[derive(Parser)]
