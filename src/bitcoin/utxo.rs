@@ -1,3 +1,5 @@
+use std::fmt;
+
 use super::address::{hash160_to_address, public_key_to_address, segwit_address};
 use super::btc_leveldb::{decompress_value, varint128_decode, varint128_read};
 use super::pubkey::decompress_public_key;
@@ -12,6 +14,21 @@ pub enum ScriptType {
     P2WSH,
     P2TR,
     NonStandard,
+}
+
+impl fmt::Display for ScriptType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScriptType::P2PKH => write!(f, "p2pkh"),
+            ScriptType::P2SH => write!(f, "p2sh"),
+            ScriptType::P2PK => write!(f, "p2pk"),
+            ScriptType::P2MS => write!(f, "p2ms"),
+            ScriptType::P2WPKH => write!(f, "p2wpkh"),
+            ScriptType::P2WSH => write!(f, "p2wsh"),
+            ScriptType::P2TR => write!(f, "p2tr"),
+            ScriptType::NonStandard => write!(f, "non-standard"),
+        }
+    }
 }
 
 pub struct UtxoValue {

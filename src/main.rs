@@ -2,18 +2,14 @@ pub mod bitcoin;
 pub mod utils;
 
 use csv::WriterBuilder;
-use std::collections::HashMap;
+use std::fmt::Write;
 use std::fs::File;
 use std::path::Path;
 
 use bitcoin::chainstate::{ChainStateDB, ChainStateValue};
 use bitcoin::utxo::UtxoValue;
 use utils::cli::parse_cli;
-use utils::fields::SelectedFields;
-use utils::fields::{
-    FIELD_ADDRESS, FIELD_AMOUNT, FIELD_COINBASE, FIELD_COUNT, FIELD_HEIGHT, FIELD_NSIZE,
-    FIELD_SCRIPT, FIELD_TXID, FIELD_TYPE, FIELD_VOUT,
-};
+use utils::fields::FieldIndices;
 
 const UTXO_PREFIX: u8 = 0x43;
 const OBFUSCATION_KEY_PREFIX: u8 = 0x0E;
@@ -23,22 +19,27 @@ fn main() -> anyhow::Result<()> {
     let cli = parse_cli()?;
     let db = ChainStateDB::open(Path::new(&cli.db))?;
 
-    let selected = SelectedFields::from_str(&cli.fields);
+    let indices = FieldIndices::from_str(&cli.fields);
 
     let mut utxo_count = 0;
     let mut obfuscation_key: Vec<u8> = Vec::new();
-    let mut output = HashMap::new();
+
+    let field_count = cli.fields.split(',').count();
+    let mut record = vec![String::new(); field_count];
 
     let outfile = File::create(&cli.output)?;
     let mut writer = WriterBuilder::new()
         .has_headers(true)
         .buffer_capacity(2048 * 1024)
         .from_writer(outfile);
+
     // Write headers
     writer.write_record(&cli.fields.split(',').collect::<Vec<_>>())?;
 
     for (key, value) in db.iter() {
-        output.clear();
+        for string in record.iter_mut() {
+            string.clear();
+        }
         match key.first_byte() {
             UTXO_PREFIX => {
                 utxo_count += 1;
@@ -46,64 +47,52 @@ fn main() -> anyhow::Result<()> {
                 if cli.max_utxos > 0 && utxo_count >= cli.max_utxos {
                     break;
                 }
-
-                if selected.txid {
-                    output.insert(FIELD_TXID.to_string(), key.txid());
+                if let Some(txid_pos) = indices.txid {
+                    record[txid_pos].push_str(&key.txid());
                 }
-                if selected.vout {
-                    output.insert(FIELD_VOUT.to_string(), key.vout().to_string());
+                if let Some(vout_pos) = indices.vout {
+                    write!(&mut record[vout_pos], "{}", key.vout()).unwrap();
                 }
-                if selected.needs_utxo_parsing() {
+                if indices.needs_utxo_parsing() {
                     let deobfuscated = ChainStateValue::new(value).deobfuscate(&obfuscation_key);
-                    let needs_decompression = selected.needs_decompression(cli.include_p2pk);
+                    let needs_decompression = indices.needs_decompression(cli.include_p2pk);
                     let utxo = UtxoValue::parse(&deobfuscated, needs_decompression)?;
 
-                    if selected.height {
-                        output.insert(FIELD_HEIGHT.to_string(), utxo.height.to_string());
+                    if let Some(height_pos) = indices.height {
+                        write!(&mut record[height_pos], "{}", utxo.height).unwrap();
                     }
-                    if selected.coinbase {
-                        output.insert(
-                            FIELD_COINBASE.to_string(),
-                            if utxo.coinbase { "1" } else { "0" }.to_string(),
-                        );
+                    if let Some(coinbase_pos) = indices.coinbase {
+                        record[coinbase_pos].push(if utxo.coinbase { '1' } else { '0' });
                     }
-                    if selected.amount {
-                        output.insert(FIELD_AMOUNT.to_string(), utxo.amount.to_string());
+                    if let Some(amount_pos) = indices.amount {
+                        write!(&mut record[amount_pos], "{}", utxo.amount).unwrap();
                     }
-                    if selected.nsize {
-                        output.insert(FIELD_NSIZE.to_string(), utxo.script_type.to_string());
+                    if let Some(nsize_pos) = indices.nsize {
+                        write!(&mut record[nsize_pos], "{}", utxo.script_type).unwrap();
                     }
-                    if selected.script {
-                        output.insert(FIELD_SCRIPT.to_string(), hex::encode(&utxo.script));
+                    if let Some(script_pos) = indices.script {
+                        record[script_pos].push_str(&hex::encode(&utxo.script));
                     }
-                    if selected.script_type || selected.address {
+                    if indices.script_type.is_some() || indices.address.is_some() {
                         let script_type = utxo.get_script_type();
-                        if selected.script_type {
-                            output.insert(
-                                FIELD_TYPE.to_string(),
-                                format!("{:?}", script_type).to_lowercase(),
-                            );
+                        if let Some(type_pos) = indices.script_type {
+                            write!(&mut record[type_pos], "{}", script_type).unwrap();
                         }
-                        if selected.address {
+                        if let Some(address_pos) = indices.address {
                             if let Some(addr) = utxo.get_address_with_type(
                                 script_type,
                                 cli.testnet,
                                 cli.include_p2pk,
                             ) {
-                                output.insert(FIELD_ADDRESS.to_string(), addr);
+                                record[address_pos].push_str(&addr);
                             }
                         }
                     }
                 }
-                if selected.count {
-                    output.insert(FIELD_COUNT.to_string(), utxo_count.to_string());
+                if let Some(count_pos) = indices.count {
+                    write!(&mut record[count_pos], "{}", utxo_count).unwrap();
                 }
 
-                let record: Vec<_> = cli
-                    .fields
-                    .split(',')
-                    .map(|field| output.remove(field).unwrap_or_default())
-                    .collect();
                 writer.write_record(&record)?;
 
                 if cli.verbose {
